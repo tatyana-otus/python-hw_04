@@ -14,7 +14,7 @@ import multiprocessing
 
 import http_session
 
-PORT = 9006
+PORT = 80
 default_config = {
     "ROOT_DIR": os.path.join(os.getcwd(), "http-test-suite"),
     "WORKERS": multiprocessing.cpu_count()
@@ -23,7 +23,7 @@ default_config = {
 OptDes = namedtuple('OptDes', 'flags type default nargs help')
 options = {"ROOT_DIR": OptDes('-r',
                               lambda p: os.path.abspath(p) if os.path.isdir(p)
-                              else exec('raise(argparse.ArgumentTypeError)'),
+                              else exec('raise(argparse.ArgumentTypeError("No such directory: {}".format(p)))'),
                               default_config["ROOT_DIR"],
                               '?',
                               "Path to root dir"),
@@ -71,29 +71,27 @@ def worker_run(id, server_socket, root_dir):
                     except BlockingIOError:
                         pass
                 else:                # client socket
-                    close_soc = True
                     if event_type & select.EPOLLIN:
-                        if connections[fd].read():
+                        if connections[fd].read():                # reading from client socket
                             if connections[fd].is_writeable():
-                                if not connections[fd].write():
+                                if not connections[fd].write():   # writing to client socket
                                     e.modify(fd, select.EPOLLOUT)
-                                    close_soc = False
+                                    continue
                                 else:
                                     if connections[fd].keepalive:
-                                        close_soc = False
+                                        continue
                             else:
-                                close_soc = False
+                                continue
                     elif event_type & select.EPOLLOUT:
-                        if not connections[fd].write():
-                            close_soc = False
+                        if not connections[fd].write():            # writing to client socket
+                            continue
                         else:
                             if connections[fd].keepalive:
                                 e.modify(fd, select.EPOLLIN)
-                                close_soc = False
-                    if close_soc:
-                        e.unregister(fd)
-                        connections[fd].socket.close()
-                        del connections[fd]
+                                continue
+                    e.unregister(fd)
+                    connections[fd].socket.close()
+                    del connections[fd]
     except KeyboardInterrupt:
         logging.debug("Http Worker {} Stop".format(id))
         e.unregister(server_fd)

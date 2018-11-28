@@ -67,6 +67,7 @@ class HttpRequest:
             self.get_initline()
             self.get_headers()
         except Exception:
+            self.valid = False
             return
         self.valid = True
 
@@ -85,29 +86,26 @@ class HttpRequest:
     def keep_alive(self):
         if self.version == "HTTP/1.1":
             return True
-        if self.version == "HTTP/1.0" and self.headers.get("Connection: ") == "Keep-Alive":
+        if self.version == "HTTP/1.0" and self.headers.get("Connection: ") == "keep-alive":
             return True
         return False
 
 
 def normalize_path(request, root_dir):
-        if request.location.endswith('/') or request.location == "":
-            request.path = os.path.join(root_dir, request.location, "index.html")
-        else:
-            request.path = os.path.join(root_dir, request.location)
+        request.path = os.path.join(root_dir, request.location)
         request.path = urllib.parse.unquote(request.path)
         request.path = os.path.normpath(request.path)
-        end = request.path.find("?")
-        if end is not -1:
-            request.path = request.path[:end]
+        request.path = urllib.parse.urlparse(request.path).path
         if not request.path.startswith(root_dir):
             request.path = ""
+        if os.path.isdir(request.path):
+            request.path = os.path.join(request.path, "index.html")
         return request
 
 
 def get_response(request):
     keepalive = request.keep_alive()
-    headers = "Data: {}\r\nServer: web-server\r\n".format(strftime("%a, %d %b %Y %H:%M:%S +0000", gmtime()))
+    headers = "Data: {}\r\nServer: OTUServer\r\n".format(strftime("%a, %d %b %Y %H:%M:%S +0000", gmtime()))
     version = str.encode(request.version or "HTTP/1.0")
     end = b"\r\n"
     body = b""
@@ -125,6 +123,7 @@ def get_response(request):
             status = b" 404 Not Found\r\n"
     else:
         status = b" 405 Method Not Allowed\r\n"
+    headers += "Connection: keep-alive\r\n" if keepalive else "Connection: close\r\n"
     response = version + status + headers.encode('utf-8') + end
     if body:
         response = response + body + end
