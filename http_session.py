@@ -8,6 +8,12 @@ from time import gmtime, strftime
 import mimetypes
 import urllib
 
+EOL1 = b"\n\n"
+EOL2 = b"\r\n\r\n"
+EOL = b"\r\n"
+
+MAX_HTTP_GET_REQ_SIZE = 8*1024
+
 
 class Session:
     def __init__(self, socket, root_dir):
@@ -25,11 +31,13 @@ class Session:
             return False
         if data:
             self.r_buffer += data
+            if len(self.r_buffer) > MAX_HTTP_GET_REQ_SIZE:
+                return False
             return True
         return False
 
     def is_writeable(self):
-        if self.r_buffer[-4:] == b'\r\n\r\n':
+        if EOL1 in self.r_buffer or EOL2 in self.r_buffer:
             logging.debug("Request: {}".format(self.r_buffer))
             self.request = HttpRequest(self.r_buffer)
             self.request.validate(self.root_dir)
@@ -78,9 +86,8 @@ class HttpRequest:
         self.version = res.group(3)
 
     def get_headers(self):
-        h_begin = self.body.find("\r\n")
-        h_end = self.body.find("\r\n\r\n")
-        h_list = filter(None, self.body[h_begin:h_end].split("\r\n"))
+        h_begin = self.body.find("\n")
+        h_list = filter(None, self.body[h_begin:].split("\n"))
         self.headers = dict(s.split(': ', 1) for s in h_list)
 
     def keep_alive(self):
@@ -107,7 +114,6 @@ def get_response(request):
     keepalive = request.keep_alive()
     headers = "Data: {}\r\nServer: OTUServer\r\n".format(strftime("%a, %d %b %Y %H:%M:%S +0000", gmtime()))
     version = str.encode(request.version or "HTTP/1.0")
-    end = b"\r\n"
     body = b""
     if not request.valid:
         status = b"400 Bad Request\r\n"
@@ -124,9 +130,9 @@ def get_response(request):
     else:
         status = b" 405 Method Not Allowed\r\n"
     headers += "Connection: keep-alive\r\n" if keepalive else "Connection: close\r\n"
-    response = version + status + headers.encode('utf-8') + end
+    response = version + status + headers.encode('utf-8') + EOL
     if body:
-        response = response + body + end
+        response = response + body + EOL
     return keepalive, response
 
 

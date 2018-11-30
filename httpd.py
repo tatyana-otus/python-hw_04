@@ -61,41 +61,54 @@ def worker_run(id, server_socket, root_dir):
             events = e.poll(1)
             for fd, event_type in events:
                 if fd == server_fd:  # server socket
-                    try:
-                        client_socket, address = server_soc.accept()
-                        client_socket.setblocking(0)
-                        client_fd = client_socket.fileno()
-                        e.register(client_fd, select.EPOLLIN)
-                        connections[client_fd] = http_session.Session(client_socket, root_dir)
-                        logging.debug("{} Received connection: {}".format(id, client_fd))
-                    except BlockingIOError:
-                        pass
-                else:                # client socket
-                    if event_type & select.EPOLLIN:
-                        if connections[fd].read():                # reading from client socket
-                            if connections[fd].is_writeable():
-                                if not connections[fd].write():   # writing to client socket
-                                    e.modify(fd, select.EPOLLOUT)
-                                    continue
-                                else:
-                                    if connections[fd].keepalive:
-                                        continue
-                            else:
-                                continue
-                    elif event_type & select.EPOLLOUT:
-                        if not connections[fd].write():            # writing to client socket
-                            continue
-                        else:
-                            if connections[fd].keepalive:
-                                e.modify(fd, select.EPOLLIN)
-                                continue
-                    e.unregister(fd)
-                    connections[fd].socket.close()
-                    del connections[fd]
+                    accept_soc(server_soc, e, connections, root_dir)
+                elif event_type & select.EPOLLIN:
+                    read_soc(e, fd, connections)
+                elif event_type & select.EPOLLOUT:
+                    write_soc(e, fd, connections)
+                else:
+                    close_soc(e, fd, connections)
     except KeyboardInterrupt:
         logging.debug("Http Worker {} Stop".format(id))
         e.unregister(server_fd)
         e.close()
+
+
+def accept_soc(server_soc, e, connections, root_dir):
+    try:
+        client_socket, address = server_soc.accept()
+        client_socket.setblocking(0)
+        client_fd = client_socket.fileno()
+        e.register(client_fd, select.EPOLLIN)
+        connections[client_fd] = http_session.Session(client_socket, root_dir)
+        logging.debug("{} Received connection: {}".format(id, client_fd))
+    except BlockingIOError:
+        pass
+
+
+def write_soc(e, fd, connections):
+    if not connections[fd].write():
+        e.modify(fd, select.EPOLLOUT)
+        return
+    if not connections[fd].keepalive:
+        close_soc(e, fd, connections)
+    else:
+        e.modify(fd, select.EPOLLIN)
+
+
+def read_soc(e, fd, connections):
+    if not connections[fd].read():
+        close_soc(e, fd, connections)
+        return
+    if not connections[fd].is_writeable():
+        return
+    write_soc(e, fd, connections)
+
+
+def close_soc(e, fd, connections):
+    e.unregister(fd)
+    connections[fd].socket.close()
+    del connections[fd]
 
 
 def main():
