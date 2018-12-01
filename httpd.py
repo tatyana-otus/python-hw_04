@@ -9,7 +9,6 @@ import argparse
 import operator
 import mimetypes
 import urllib
-import threading
 import multiprocessing
 
 import http_session
@@ -53,15 +52,14 @@ def worker_run(id, server_socket, root_dir):
     try:
         logging.debug("Http Worker {} Start".format(id))
         connections = {}
-        server_soc = server_socket
-        server_fd = server_soc.fileno()
+        server_fd = server_socket.fileno()
         e = select.epoll()
         e.register(server_fd, select.EPOLLIN)
         while True:
             events = e.poll(1)
             for fd, event_type in events:
                 if fd == server_fd:  # server socket
-                    accept_soc(server_soc, e, connections, root_dir)
+                    accept_soc(server_socket, e, connections, root_dir)
                 elif event_type & select.EPOLLIN:
                     read_soc(e, fd, connections)
                 elif event_type & select.EPOLLOUT:
@@ -81,7 +79,6 @@ def accept_soc(server_soc, e, connections, root_dir):
         client_fd = client_socket.fileno()
         e.register(client_fd, select.EPOLLIN)
         connections[client_fd] = http_session.Session(client_socket, root_dir)
-        logging.debug("{} Received connection: {}".format(id, client_fd))
     except BlockingIOError:
         pass
 
